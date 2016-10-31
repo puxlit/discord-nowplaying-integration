@@ -1,0 +1,8 @@
+{
+    "@python": 3,
+    "linters": {
+        "pep8": {
+            "ignore": "E501"
+        }
+    }
+}
