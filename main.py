@@ -19,6 +19,8 @@ def truncate(string, max_bytes):
 
     >>> truncate('foobar', 8)
     'foobar'
+    >>> truncate('hello', 5)
+    'hello'
 
     Lob off "partial" words, where practical:
     >>> truncate('lorem ipsum dolor sit amet', 21)
@@ -31,25 +33,31 @@ def truncate(string, max_bytes):
     Otherwise, break apart the word:
     >>> truncate('howdeedoodeethere', 11)
     'howdee[…]'
+
+    Note that ``max_bytes`` must be ≥ what's required to return the worst-case truncation:
+    >>> truncate('hello world', 5)
+    '[…]'
+    >>> truncate('hello world', 4)
+    Traceback (most recent call last):
+        ...
+    AssertionError: max_bytes ≱ 5
     """
 
     # These should really be constants, but meh…
     ellipsis = '[…]'
     space = ' '
-    max_bytes_available_when_truncated = max_bytes - len(ellipsis.encode())
-    assert max_bytes_available_when_truncated >= 0
+    ellipsis_bytes = len(ellipsis.encode())
+    max_bytes_available_when_truncated = max_bytes - ellipsis_bytes
+    assert max_bytes_available_when_truncated >= 0, 'max_bytes ≱ {:d}'.format(ellipsis_bytes)
 
     # If we're within budget, brill…
     if len(string.encode()) <= max_bytes:
         return string
 
-    # Roughly cut things down to size…
-    string = string[:max_bytes_available_when_truncated]
-    # Shave off additional characters, if necessary…
-    while len(string.encode()) > max_bytes_available_when_truncated:
-        string = string[:-1]
-    # If the string ends with a "partial" word, then lob that off…
-    if not string[-1].isspace():
+    # Cut things down to size. If we snip across a multibyte character, we've asked the decoder to turn a blind eye…
+    string = string.encode()[:max_bytes_available_when_truncated].decode(errors='ignore')
+    # If the string (is non-empty and) ends with a "partial" word, then lob that off…
+    if string and (not string[-1].isspace()):
         split = string.rsplit(maxsplit=1)
         if len(split) == 2:
             string = split[0] + space
