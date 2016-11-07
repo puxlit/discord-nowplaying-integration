@@ -1,16 +1,37 @@
 #!/usr/bin/env python
 
+import asyncio
+from collections import deque
 import logging
 import threading
 from urllib.parse import parse_qs
 
 import discord
-import janus
 import scapy.all as scapy
 import scapy_http.http as scapy_http
 
 
 logger = logging.getLogger('integration')
+
+
+class Queue:
+    def __init__(self, maxlen=None, loop=None):
+        self._loop = loop or asyncio.get_event_loop()
+        self._cv = asyncio.Condition(loop=self._loop)
+        self._deque = deque(maxlen=maxlen)
+
+    async def _put(self, item):
+        with await self._cv:
+            self._deque.append(item)
+            self._cv.notify()
+
+    def put(self, item):
+        asyncio.run_coroutine_threadsafe(self._put(item), self._loop).result()
+
+    async def get(self):
+        with await self._cv:
+            await self._cv.wait_for(lambda: len(self._deque))
+            return self._deque.popleft()
 
 
 def truncate(string, max_bytes):
@@ -195,7 +216,7 @@ if __name__ == '__main__':
     from getpass import getpass
     token = getpass(prompt='Enter `localStorage.token`: ')
 
-    queue = janus.Queue(loop=client.loop)
-    threading.Thread(target=intercept_lastfm_requests, args=(queue.sync_q,), daemon=True).start()
-    client.loop.create_task(update_presence(queue.async_q))
+    queue = Queue(maxlen=1, loop=client.loop)
+    threading.Thread(target=intercept_lastfm_requests, args=(queue,), daemon=True).start()
+    client.loop.create_task(update_presence(queue))
     client.run(token, bot=False)
