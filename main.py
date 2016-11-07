@@ -19,11 +19,17 @@ class Queue:
         self._loop = loop or asyncio.get_event_loop()
         self._cv = asyncio.Condition(loop=self._loop)
         self._deque = deque(maxlen=maxlen)
+        self._last_popped_item = None
+
+    @property
+    def _last_item(self):
+        return (self._deque[-1] if len(self._deque) else self._last_popped_item)
 
     async def _put(self, item):
         with await self._cv:
-            self._deque.append(item)
-            self._cv.notify()
+            if item != self._last_item:
+                self._deque.append(item)
+                self._cv.notify()
 
     def put(self, item):
         asyncio.run_coroutine_threadsafe(self._put(item), self._loop).result()
@@ -31,7 +37,8 @@ class Queue:
     async def get(self):
         with await self._cv:
             await self._cv.wait_for(lambda: len(self._deque))
-            return self._deque.popleft()
+            self._last_popped_item = self._deque.popleft()
+            return self._last_popped_item
 
 
 def truncate(string, max_bytes):
