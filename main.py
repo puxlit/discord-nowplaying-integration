@@ -14,9 +14,37 @@ import scapy_http.http as scapy_http
 logger = logging.getLogger('integration')
 
 
-class Queue:
-    def __init__(self, maxlen=None, loop=None):
+class RateLimiter:
+    def __init__(self, quota, interval, loop=None):
         self._loop = loop or asyncio.get_event_loop()
+        self._interval = interval
+        self._expiration_timestamps = deque(maxlen=quota)
+
+    async def __aenter__(self):
+        # Prune expired expiration timestamps…
+        while len(self._expiration_timestamps) and (self._expiration_timestamps[0] <= self._loop.time()):
+            self._expiration_timestamps.popleft()
+
+        # If we're at our quota, then we'll have to wait…
+        if len(self._expiration_timestamps) == self._expiration_timestamps.maxlen:
+            await asyncio.sleep(self._expiration_timestamps.popleft() - self._loop.time(), loop=self._loop)
+
+        # Going in, we should be strictly under quota…
+        assert len(self._expiration_timestamps) < self._expiration_timestamps.maxlen
+
+    async def __aexit__(self, *exc_info):
+        # Coming out, we should be strictly under quota…
+        assert len(self._expiration_timestamps) < self._expiration_timestamps.maxlen
+
+        # Only append an expiration timestamp if we came out exception-free…
+        if exc_info == (None, None, None):
+            self._expiration_timestamps.append(self._loop.time() + self._interval)
+
+
+class Queue:
+    def __init__(self, rate_limiter, maxlen=None, loop=None):
+        self._loop = loop or asyncio.get_event_loop()
+        self._rate_limiter = rate_limiter
         self._cv = asyncio.Condition(loop=self._loop)
         self._deque = deque(maxlen=maxlen)
         self._last_popped_item = None
@@ -26,7 +54,7 @@ class Queue:
         return (self._deque[-1] if len(self._deque) else self._last_popped_item)
 
     async def _put(self, item):
-        with await self._cv:
+        async with self._cv:
             if item != self._last_item:
                 self._deque.append(item)
                 self._cv.notify()
@@ -35,7 +63,7 @@ class Queue:
         asyncio.run_coroutine_threadsafe(self._put(item), self._loop).result()
 
     async def get(self):
-        with await self._cv:
+        async with self._rate_limiter, self._cv:
             await self._cv.wait_for(lambda: len(self._deque))
             self._last_popped_item = self._deque.popleft()
             return self._last_popped_item
@@ -223,7 +251,8 @@ if __name__ == '__main__':
     from getpass import getpass
     token = getpass(prompt='Enter `localStorage.token`: ')
 
-    queue = Queue(maxlen=1, loop=client.loop)
+    rate_limiter = RateLimiter(5, 60, loop=client.loop)
+    queue = Queue(rate_limiter, maxlen=1, loop=client.loop)
     threading.Thread(target=intercept_lastfm_requests, args=(queue,), daemon=True).start()
     client.loop.create_task(update_presence(queue))
     client.run(token, bot=False)
