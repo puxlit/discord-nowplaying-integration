@@ -3,6 +3,7 @@ async-timeout==1.1.0
 chardet==2.3.0
 discord.py==0.14.3
 multidict==2.1.2
+psutil==5.0.0
 scapy-http==1.8
 scapy-python3==0.18
 websockets==3.2

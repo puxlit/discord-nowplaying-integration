@@ -2,11 +2,16 @@
 
 import asyncio
 from collections import deque
+from contextlib import closing
+from getpass import getpass
 import logging
+import os
+import sqlite3
 import threading
-from urllib.parse import parse_qs
+from urllib.parse import SplitResult, parse_qs, urlunsplit
 
 import discord
+import psutil
 import scapy.all as scapy
 import scapy_http.http as scapy_http
 
@@ -217,6 +222,45 @@ def intercept_lastfm_requests(queue):
     scapy.sniff(count=0, store=0, prn=handle, filter='dst host (post.audioscrobbler.com or post2.audioscrobbler.com) and dst port 80')
 
 
+def discover_token():
+    # TODO: Test whether this works on good ol' Windows.
+
+    mapping = {
+        'Discord': os.sep + 'https_discordapp.com_0.localstorage',
+        'Discord PTB': os.sep + 'https_ptb.discordapp.com_0.localstorage',
+        'Discord Canary': os.sep + 'https_canary.discordapp.com_0.localstorage',
+    }
+
+    candidate_processes = [p for p in psutil.process_iter() if (p.name() in mapping.keys())]
+    if len(candidate_processes) != 1:
+        logger.warning('Could not identify exactly one running Discord desktop application process!')
+        return
+    candidate_process = candidate_processes[0]
+
+    candidate_files = [f for f in candidate_process.open_files() if f.path.endswith(mapping[candidate_process.name()])]
+    if len(candidate_files) != 1:
+        logger.warning('Could not identify exactly one open local storage DB file for the running Discord desktop application process!')
+        return
+    candidate_file_path = candidate_files[0].path
+
+    db_uri = urlunsplit(SplitResult(scheme='file', netloc='', path=candidate_file_path, query='mode=ro', fragment=''))
+    with closing(sqlite3.connect(db_uri, uri=True)) as con:
+        with closing(con.cursor()) as cur:
+            cur.execute('select value from ItemTable where key = ?', ('token',))
+            row = cur.fetchone()
+    if row is None:
+        logger.warning('Could not find token in the open local storage DB file for the running Discord desktop application process!')
+        return
+    json_token = row[0].decode('utf-16-le')
+    assert json_token.startswith('"')
+    assert json_token.endswith('"')
+    return json_token[1:-1]
+
+
+def prompt_for_token():
+    return getpass(prompt='Enter `localStorage.token`: ')
+
+
 client = discord.Client()
 
 
@@ -248,9 +292,7 @@ if __name__ == '__main__':
     discord_handler.setFormatter(formatter)
     discord_logger.addHandler(discord_handler)
 
-    from getpass import getpass
-    token = getpass(prompt='Enter `localStorage.token`: ')
-
+    token = discover_token() or prompt_for_token()
     rate_limiter = RateLimiter(5, 60, loop=client.loop)
     queue = Queue(rate_limiter, maxlen=1, loop=client.loop)
     threading.Thread(target=intercept_lastfm_requests, args=(queue,), daemon=True).start()

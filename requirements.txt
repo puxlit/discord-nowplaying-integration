@@ -1,3 +1,4 @@
 discord.py
+psutil
 git+https://github.com/invernizzi/scapy-http.git@df0caa6f38a88e45f64dff0bb3cdfaceee270ae2
 scapy-python3
