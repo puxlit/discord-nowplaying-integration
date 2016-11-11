@@ -2,22 +2,28 @@
 
 import asyncio
 from collections import deque
-from contextlib import closing
-from getpass import getpass
 import logging
-import os
-import sqlite3
-import threading
-from urllib.parse import SplitResult, parse_qs, urlunsplit
 
+from AppKit import NSObject
+from Foundation import NSDistributedNotificationCenter
 import discord
-import psutil
-import scapy.all as scapy
-import scapy_http.http as scapy_http
 
+__all__ = (
+    'RateLimiter', 'Queue',
+    'truncate', 'format_status_message',
+    'handle_generic_notification', 'PlaybackStateObserver',
+    'discover_token', 'prompt_for_token',
+    'update_presence', 'run_client', 'run',
+    'bootstrap',
+)
+
+
+################################################################################################################################################################
 
 logger = logging.getLogger('integration')
 
+
+################################################################################################################################################################
 
 class RateLimiter:
     def __init__(self, quota, interval, loop=None):
@@ -73,6 +79,8 @@ class Queue:
             self._last_popped_item = self._deque.popleft()
             return self._last_popped_item
 
+
+################################################################################################################################################################
 
 def truncate(string, max_bytes):
     """
@@ -186,44 +194,53 @@ def format_status_message(artist, title):
     return status_message
 
 
-def intercept_lastfm_requests(queue):
-    grace_period = 2
-    timer = None
+################################################################################################################################################################
 
-    def clear_status_message_later(delay):
-        nonlocal timer
-
-        def clear_status_message():
-            nonlocal timer
-
-            timer = None
-            logger.info('Will clear status message')
-            queue.put(None)
-
-        if timer:
-            timer.cancel()
-        timer = threading.Timer(delay, clear_status_message)
-        timer.start()
-
-    def handle(packet):
-        if packet.haslayer(scapy_http.HTTPRequest):
-            http_request = packet.getlayer(scapy_http.HTTPRequest)
-            if http_request.Method == b'POST':
-                if http_request.Path == b'/np_1.2':
-                    payload = parse_qs(http_request.load.decode())
-                    (artist, title, length) = (payload['a'][0], payload['t'][0], int(payload['l'][0]))
-                    logger.info('Intercepted now playing POST for «{:s}» by «{:s}»; will dispatch status message, and clear in {:d} + {:d} seconds'.format(title, artist, length, grace_period))
-                    queue.put(format_status_message(artist, title))
-                    clear_status_message_later(length + grace_period)
-                elif http_request.Path == b'/protocol_1.2':
-                    logger.info('Intercepted scrobbling POST; will clear status message in {:d} seconds'.format(grace_period))
-                    clear_status_message_later(grace_period)
-
-    scapy.sniff(count=0, store=0, prn=handle, filter='dst host (post.audioscrobbler.com or post2.audioscrobbler.com) and dst port 80')
+def handle_generic_notification(queue, player, notification):
+    ui = notification.userInfo()
+    state = ui.objectForKey_('Player State')
+    if state in ('Paused', 'Stopped'):
+        logger.info('{:s} notified us that it is no longer playing anything; will reset status message'.format(player))
+        queue.put(None)
+    elif state == 'Playing':
+        (artist, title) = (ui.objectForKey_('Artist'), ui.objectForKey_('Name'))
+        logger.info('{:s} notified us that it is now playing «{:s}» by «{:s}»; will update status message'.format(player, title, artist))
+        queue.put(format_status_message(artist, title))
 
 
+class PlaybackStateObserver(NSObject):
+    def initWithQueue_(self, queue):
+        self = super().init()
+        self._queue = queue
+        logger.info('Adding observers')
+        dnc = NSDistributedNotificationCenter.defaultCenter()
+        dnc.addObserver_selector_name_object_(self, 'iTunesPlaybackStateChanged:', 'com.apple.iTunes.playerInfo', None)
+        dnc.addObserver_selector_name_object_(self, 'spotifyPlaybackStateChanged:', 'com.spotify.client.PlaybackStateChanged', None)
+        return self
+
+    def dealloc(self):
+        logger.info('Removing observers')
+        dnc = NSDistributedNotificationCenter.defaultCenter()
+        dnc.removeObserver_(self)
+        return super().dealloc()
+
+    def iTunesPlaybackStateChanged_(self, aNotification):
+        handle_generic_notification(self._queue, 'iTunes', aNotification)
+
+    def spotifyPlaybackStateChanged_(self, aNotification):
+        handle_generic_notification(self._queue, 'Spotify', aNotification)
+
+
+################################################################################################################################################################
+
+# TODO: Test whether this works on good ol' Windows.
 def discover_token():
-    # TODO: Test whether this works on good ol' Windows.
+    from contextlib import closing
+    import os
+    import sqlite3
+    from urllib.parse import SplitResult, urlunsplit
+
+    import psutil
 
     mapping = {
         'Discord': os.sep + 'https_discordapp.com_0.localstorage',
@@ -258,18 +275,13 @@ def discover_token():
 
 
 def prompt_for_token():
+    from getpass import getpass
     return getpass(prompt='Enter `localStorage.token`: ')
 
 
-client = discord.Client()
+################################################################################################################################################################
 
-
-@client.event
-async def on_ready():
-    logger.info('Logged in as {:s} [#{:s}]'.format(client.user.name, client.user.id))
-
-
-async def update_presence(queue):
+async def update_presence(client, queue):
     await client.wait_until_ready()
     while not client.is_closed:
         status_message = await queue.get()
@@ -278,7 +290,54 @@ async def update_presence(queue):
         await client.change_presence(game=game)
 
 
-if __name__ == '__main__':
+def run_client(client, token):
+    loop = client.loop
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(client.start(token, bot=False))
+    finally:
+        loop.run_until_complete(client.logout())
+        pending = asyncio.Task.all_tasks()
+        gathered = asyncio.gather(*pending)
+        try:
+            gathered.cancel()
+            loop.run_until_complete(gathered)
+            gathered.exception()
+        except:
+            pass
+        loop.close()
+
+
+def run(token):
+    import threading
+
+    from PyObjCTools import AppHelper
+
+    client = discord.Client()
+
+    @client.event
+    async def on_ready():
+        logger.info('Logged in as {:s} [#{:s}]'.format(client.user.name, client.user.id))
+
+    loop = client.loop
+    rate_limiter = RateLimiter(5, 60, loop=loop)
+    queue = Queue(rate_limiter, maxlen=1, loop=loop)
+    loop.create_task(update_presence(client, queue))
+    client_thread = threading.Thread(target=run_client, args=(client, token))
+    client_thread.start()
+
+    pso = PlaybackStateObserver.alloc().initWithQueue_(queue)
+    try:
+        AppHelper.runConsoleEventLoop(installInterrupt=True)
+    finally:
+        del pso
+        asyncio.run_coroutine_threadsafe(client.logout(), loop).result()
+        client_thread.join()
+
+
+################################################################################################################################################################
+
+def bootstrap():
     formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
 
     logger.setLevel(logging.INFO)
@@ -293,8 +352,8 @@ if __name__ == '__main__':
     discord_logger.addHandler(discord_handler)
 
     token = discover_token() or prompt_for_token()
-    rate_limiter = RateLimiter(5, 60, loop=client.loop)
-    queue = Queue(rate_limiter, maxlen=1, loop=client.loop)
-    threading.Thread(target=intercept_lastfm_requests, args=(queue,), daemon=True).start()
-    client.loop.create_task(update_presence(queue))
-    client.run(token, bot=False)
+    run(token)
+
+
+if __name__ == '__main__':
+    bootstrap()
