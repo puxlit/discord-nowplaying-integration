@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 import asyncio
 from collections import deque
 import logging
@@ -14,7 +12,7 @@ __all__ = (
     'handle_generic_notification', 'PlaybackStateObserver',
     'discover_token', 'prompt_for_token',
     'update_presence', 'run_client', 'run',
-    'bootstrap',
+    'main',
 )
 
 
@@ -337,7 +335,7 @@ def run(token):
 
 ################################################################################################################################################################
 
-def bootstrap():
+def main():
     formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
 
     logger.setLevel(logging.INFO)
@@ -353,7 +351,3 @@ def bootstrap():
 
     token = discover_token() or prompt_for_token()
     run(token)
-
-
-if __name__ == '__main__':
-    bootstrap()

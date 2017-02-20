@@ -1,4 +1,0 @@
-discord.py
-psutil
-pyobjc-core
-pyobjc-framework-Cocoa
