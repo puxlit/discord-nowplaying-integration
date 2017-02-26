@@ -1,7 +1,7 @@
 from discord_nowplaying_integration.utils import IS_LINUX, IS_MACOSX, IS_WINDOWS
 
 if IS_WINDOWS:
-    pass
+    from discord_nowplaying_integration.nowplaying.observers.com import PlayersObserver
 elif IS_MACOSX:
     from discord_nowplaying_integration.nowplaying.observers.dnc_ps import ProxyPlaybackStateObserver
 elif IS_LINUX:
@@ -15,7 +15,7 @@ __all__ = ('OBSERVERS',)
 ################################################################################################################################################################
 
 if IS_WINDOWS:
-    OBSERVERS = ()
+    OBSERVERS = (PlayersObserver,)
 elif IS_MACOSX:
     OBSERVERS = (ProxyPlaybackStateObserver,)
 elif IS_LINUX:

@@ -15,7 +15,7 @@ from discord_nowplaying_integration.selfbot import Selfbot
 from discord_nowplaying_integration.utils import Formatter, IS_LINUX, IS_MACOSX, IS_WINDOWS, Queue, RateLimiter
 
 if IS_WINDOWS:
-    pass
+    from time import sleep
 elif IS_MACOSX:
     from PyObjCTools import AppHelper
 elif IS_LINUX:
@@ -148,13 +148,19 @@ def run_client(loop, terminating, queue):
     try:
         loop.run_until_complete(spawn_selfbots(terminating, queue))
     finally:
-        loop.run_until_complete(asyncio.wait(asyncio.Task.all_tasks()))
+        remaining_tasks = asyncio.Task.all_tasks()
+        if remaining_tasks:
+            loop.run_until_complete(asyncio.wait(remaining_tasks))
         loop.close()
 
 
 if IS_WINDOWS:
     def run_main_event_loop():
-        raise NotImplementedError()
+        try:
+            while True:
+                sleep(60)
+        except KeyboardInterrupt:
+            pass
 elif IS_MACOSX:
     def run_main_event_loop():
         AppHelper.runConsoleEventLoop(installInterrupt=True)
