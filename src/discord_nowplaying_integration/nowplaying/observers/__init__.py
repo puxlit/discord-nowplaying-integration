@@ -2,6 +2,7 @@ from discord_nowplaying_integration.utils import IS_LINUX, IS_MACOSX, IS_WINDOWS
 
 if IS_WINDOWS:
     from discord_nowplaying_integration.nowplaying.observers.com import PlayersObserver
+    from discord_nowplaying_integration.nowplaying.observers.spotify_web_helper import SpotifyWebHelperObserver
 elif IS_MACOSX:
     from discord_nowplaying_integration.nowplaying.observers.dnc_ps import ProxyPlaybackStateObserver
 elif IS_LINUX:
@@ -15,7 +16,7 @@ __all__ = ('OBSERVERS',)
 ################################################################################################################################################################
 
 if IS_WINDOWS:
-    OBSERVERS = (PlayersObserver,)
+    OBSERVERS = (PlayersObserver, SpotifyWebHelperObserver)
 elif IS_MACOSX:
     OBSERVERS = (ProxyPlaybackStateObserver,)
 elif IS_LINUX:

@@ -105,7 +105,7 @@ class PlayersObserver:
                     try:
                         CoWaitForMultipleHandles(0, 2000, len(p_handles), p_handles, lpdw_index)
                     except OSError as err:
-                        if err.args[3] != -2147417835:  # RPC_S_CALLPENDING
+                        if err.winerror != -2147417835:  # RPC_S_CALLPENDING
                             raise
             finally:
                 CloseHandle(hevt_dummy)
