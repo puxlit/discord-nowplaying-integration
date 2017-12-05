@@ -61,7 +61,7 @@ class Selfbot(discord.Client):
                 ((got_nowplaying_state, nowplaying_state), (_, _)) = await either(queue.get(), self._closed.wait())
                 if not got_nowplaying_state:
                     continue
-                game = discord.Game(name=format_status_message(*nowplaying_state)) if nowplaying_state else None
+                game = discord.Game(name=format_status_message(*nowplaying_state), type=2) if nowplaying_state else None
                 logger.info('Will set game to «{0!s:s}» (with {1:s} status)…'.format(game, self.user_status) if game else 'Will clear game (with {0:s} status)…'.format(self.user_status))
                 await self.change_presence(game=game, status=self.user_status)
         self.loop.create_task(update_presence())

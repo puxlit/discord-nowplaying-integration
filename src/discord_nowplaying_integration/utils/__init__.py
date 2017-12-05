@@ -165,34 +165,33 @@ def format_status_message(artist, title):
     Formats the supplied artist and title into an acceptable user presence game name.
 
     >>> format_status_message('audiomachine', 'Beyond the Clouds')
-    '♪ audiomachine — Beyond the Clouds'
+    'audiomachine — Beyond the Clouds'
 
     If the combo is too long, start by cutting the artist down to size:
     >>> format_status_message(
     ...     'Daniel Winiger, Daniel Perret & Praxedis Rutti',
     ...     'Ellen\'s Gesang III (Ave Maria!), Op. 56, No. 6, D. 839, "Hymne an Die Jungfrau"'
     ... )
-    '♪ Daniel Winiger, Daniel Perret & […] — Ellen\'s Gesang III (Ave Maria!), Op. 56, No. 6, D. 839, "Hymne an Die Jungfrau"'
+    'Daniel Winiger, Daniel Perret & […] — Ellen\'s Gesang III (Ave Maria!), Op. 56, No. 6, D. 839, "Hymne an Die Jungfrau"'
 
     If that's still not enough, then trim the title:
     >>> format_status_message(
     ...     'Gustav Kuhn, Haydn Orchestra of Bolzano & Trento & Soloists of Accademia di Montegral',
     ...     'Symphonie No. 6 in A-Dur, Op. 68 - "Pastorale": Erwachen heiterer Gefühle bei der Ankunft auf dem Lande: Allegro ma non troppo'
     ... )
-    '♪ Gustav Kuhn, Haydn […] — Symphonie No. 6 in A-Dur, Op. 68 - "Pastorale": Erwachen heiterer Gefühle bei der […]'
+    'Gustav Kuhn, Haydn […] — Symphonie No. 6 in A-Dur, Op. 68 - "Pastorale": Erwachen heiterer Gefühle bei der Ankunft […]'
 
     Placeholders are used for effectively blank artists and/or titles:
     >>> format_status_message('', ' ')
-    '♪ [unknown] — [unknown]'
+    '[unknown] — [unknown]'
     """
 
     # These should really be constants, but meh…
-    prefix = '♪ '
     separator = ' — '
     unknown = '[unknown]'
     min_artist_bytes_when_truncated = 30
     max_bytes = 128
-    max_bytes_available = max_bytes - len(prefix.encode()) - len(separator.encode())
+    max_bytes_available = max_bytes - len(separator.encode())
     assert min_artist_bytes_when_truncated < max_bytes_available  # Remember, titles take up at least a byte.
 
     artist = artist.strip() or unknown
@@ -213,6 +212,6 @@ def format_status_message(artist, title):
         if bytes_left < 0:
             title = truncate(title, title_bytes + bytes_left)
 
-    status_message = prefix + artist + separator + title
+    status_message = artist + separator + title
     assert len(status_message.encode()) <= max_bytes
     return status_message
